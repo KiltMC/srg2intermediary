@@ -1,0 +1,33 @@
+plugins {
+    id 'org.jetbrains.kotlin.jvm' version '1.7.21'
+    id 'com.github.johnrengelman.shadow' version '7.1.2'
+}
+
+group = 'xyz.bluspring'
+version = '1.0-SNAPSHOT'
+
+repositories {
+    mavenCentral()
+    maven {
+        name 'MinecraftForge Maven'
+        url 'https://maven.minecraftforge.net/'
+    }
+
+    maven {
+        name 'Fabric'
+        url 'https://maven.fabricmc.net/'
+    }
+}
+
+dependencies {
+    implementation('net.minecraftforge:srgutils:0.4.13')
+    implementation('com.google.code.gson:gson:2.10')
+}
+
+compileKotlin {
+    kotlinOptions.jvmTarget = '1.8'
+}
+
+compileTestKotlin {
+    kotlinOptions.jvmTarget = '1.8'
+}
