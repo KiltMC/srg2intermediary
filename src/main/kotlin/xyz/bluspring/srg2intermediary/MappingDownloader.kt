@@ -3,11 +3,12 @@ package xyz.bluspring.srg2intermediary
 import com.google.gson.JsonParser
 import java.io.File
 import java.net.URL
+import java.util.jar.JarFile
 
 class MappingDownloader(private val version: String) {
-    val intermediaryFile = File("intermediary-$version-v2.jar")
-    val mojangMappingsFile = File("client_$version.txt")
-    val srgMappingsFile = File("joined_$version.tsrg")
+    val intermediaryFile = File("intermediary_$version.tiny")
+    val mojangMappingsFile = File("mojang_$version.txt")
+    val srgMappingsFile = File("srg_$version.tsrg")
 
     fun downloadFiles() {
         val startTime = System.currentTimeMillis()
@@ -26,11 +27,20 @@ class MappingDownloader(private val version: String) {
             return
         }
 
+        val intermediaryJar = File("intermediary-$version-v2.jar")
+
         println("Downloading Intermediary for $version...")
         val url = URL("https://maven.fabricmc.net/net/fabricmc/intermediary/$version/${intermediaryFile.name}")
 
+        intermediaryJar.createNewFile()
+        intermediaryJar.writeBytes(url.readBytes())
+
         intermediaryFile.createNewFile()
-        intermediaryFile.writeBytes(url.readBytes())
+
+        val jar = JarFile(intermediaryJar)
+        intermediaryFile.writeBytes(jar.getInputStream(jar.getEntry("mappings/mappings.tiny")).readAllBytes())
+        intermediaryJar.delete()
+
         println("Intermediary for $version has been downloaded!")
     }
 
@@ -55,6 +65,7 @@ class MappingDownloader(private val version: String) {
 
         mojangMappingsFile.createNewFile()
         mojangMappingsFile.writeText(mappingsUrl.readText())
+
         println("Mojang mappings for $version has been downloaded!")
     }
 
