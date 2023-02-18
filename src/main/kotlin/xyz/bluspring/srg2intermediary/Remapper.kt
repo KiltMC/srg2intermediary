@@ -29,19 +29,43 @@ class Remapper(downloader: MappingDownloader, private val version: String) {
             val mappedClass = mappingBuilder.addClass(mojangClass.mapped, intermediaryClass.mapped)
 
             srgClass.fields.forEach fieldMapper@{ field ->
-                val intermediaryField = intermediaryClass.getField(field.mapped) ?: return@fieldMapper
+                val intermediaryField = intermediaryClass.getField(field.mapped)
+
+                if (intermediaryField == null) {
+                    val mojField = mojangClass.getField(field.mapped)
+
+                    mappedClass.field(field.original, field.mapped)
+                        .descriptor(if (mojField != null) {
+                            if (mojField.descriptor?.startsWith("L") == true) {
+                                intermediaryMappings.remapDescriptor(mojField.descriptor) ?: mojField.descriptor
+                            } else mojField.descriptor
+                        } else null)
+
+                    return@fieldMapper
+                }
 
                 mappedClass.field(field.original, intermediaryField.mapped)
                     .descriptor(intermediaryField.mappedDescriptor)
             }
 
             srgClass.methods.forEach methodMapper@{ method ->
-                val intermediaryMethod = intermediaryClass.getMethod(method.mapped, method.mappedDescriptor) ?: return@methodMapper
+                val intermediaryMethod = intermediaryClass.getMethod(method.mapped, method.mappedDescriptor)
+
+                if (intermediaryMethod == null) {
+                    mappedClass.method(intermediaryMappings.remapDescriptor(method.mappedDescriptor), method.original, method.mapped)
+                        .apply {
+                            method.parameters.forEach { param ->
+                                this.parameter(param.index, param.original, param.mapped)
+                            }
+                        }
+
+                    return@methodMapper
+                }
 
                 mappedClass.method(intermediaryMethod.mappedDescriptor, method.original, intermediaryMethod.mapped)
                     .apply {
                         intermediaryMethod.parameters.forEach { param ->
-                            this.parameter(param.index, param.mapped)
+                            this.parameter(param.index, param.original, param.mapped)
                         }
                     }
             }
