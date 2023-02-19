@@ -10,6 +10,8 @@ class Remapper(downloader: MappingDownloader, private val version: String) {
     val mojangMappings = IMappingFile.load(downloader.mojangMappingsFile).reverse() // official -> moj (result of being reversed)
     val intermediaryMappings = IMappingFile.load(downloader.intermediaryFile) // official -> intermediary
 
+    private val alreadyRemapped = mutableMapOf<String, Pair<String, String?>>()
+
     fun remap() {
         val startTime = System.currentTimeMillis()
         println("Creating mappings with MojMap class names and SRG method/field names to Intermediary...")
@@ -29,30 +31,54 @@ class Remapper(downloader: MappingDownloader, private val version: String) {
             val mappedClass = mappingBuilder.addClass(mojangClass.mapped, intermediaryClass.mapped)
 
             srgClass.fields.forEach fieldMapper@{ field ->
+                if (alreadyRemapped.contains(field.original)) {
+                    val remapped = alreadyRemapped[field.original]!!
+                    mappedClass.field(field.original, remapped.first)
+                        .descriptor(remapped.second)
+
+                    return@fieldMapper
+                }
+
                 val intermediaryField = intermediaryClass.getField(field.mapped)
 
                 if (intermediaryField == null) {
                     // Don't handle those that aren't going to be remapped anyway.
-                    if (field.original == field.mapped)
+                    if (field.original == field.mapped || !field.original.startsWith("f_"))
                         return@fieldMapper
 
                     val mojField = mojangClass.getField(field.mapped)
+                    val descriptor = if (mojField != null) {
+                        if (mojField.descriptor?.startsWith("L") == true) {
+                            intermediaryMappings.remapDescriptor(mojField.descriptor) ?: mojField.descriptor
+                        } else mojField.descriptor
+                    } else null
 
                     mappedClass.field(field.original, field.mapped)
-                        .descriptor(if (mojField != null) {
-                            if (mojField.descriptor?.startsWith("L") == true) {
-                                intermediaryMappings.remapDescriptor(mojField.descriptor) ?: mojField.descriptor
-                            } else mojField.descriptor
-                        } else null)
+                        .descriptor(descriptor)
+
+                    alreadyRemapped[field.original] = Pair(field.mapped, descriptor)
 
                     return@fieldMapper
                 }
+
+                alreadyRemapped[field.original] = Pair(intermediaryField.mapped, intermediaryField.mappedDescriptor)
 
                 mappedClass.field(field.original, intermediaryField.mapped)
                     .descriptor(intermediaryField.mappedDescriptor)
             }
 
             srgClass.methods.forEach methodMapper@{ method ->
+                // what the fuck is this, why is this even possible
+                if (method.original.startsWith("f_"))
+                    return@methodMapper
+
+                if (alreadyRemapped.contains(method.original)) {
+                    val remapped = alreadyRemapped[method.original]!!
+                    mappedClass.method(remapped.second, method.original, remapped.first)
+
+                    return@methodMapper
+                }
+
                 val intermediaryMethod = intermediaryClass.getMethod(method.mapped, method.mappedDescriptor)
 
                 if (intermediaryMethod == null) {
@@ -60,22 +86,16 @@ class Remapper(downloader: MappingDownloader, private val version: String) {
                     if (method.original == method.mapped)
                         return@methodMapper
 
-                    mappedClass.method(intermediaryMappings.remapDescriptor(method.mappedDescriptor), method.original, method.mapped)
-                        .apply {
-                            method.parameters.forEach { param ->
-                                this.parameter(param.index, param.original, param.mapped)
-                            }
-                        }
+                    val descriptor = intermediaryMappings.remapDescriptor(method.mappedDescriptor)
+                    mappedClass.method(descriptor, method.original, method.mapped)
+
+                    alreadyRemapped[method.original] = Pair(method.mapped, descriptor)
 
                     return@methodMapper
                 }
 
                 mappedClass.method(intermediaryMethod.mappedDescriptor, method.original, intermediaryMethod.mapped)
-                    .apply {
-                        intermediaryMethod.parameters.forEach { param ->
-                            this.parameter(param.index, param.original, param.mapped)
-                        }
-                    }
+                alreadyRemapped[method.original] = Pair(intermediaryMethod.mapped, intermediaryMethod.mappedDescriptor)
             }
         }
 

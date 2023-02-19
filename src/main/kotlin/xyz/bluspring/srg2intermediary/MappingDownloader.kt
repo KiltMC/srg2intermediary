@@ -9,6 +9,7 @@ class MappingDownloader(private val version: String) {
     val intermediaryFile = File("intermediary_$version.tiny")
     val mojangMappingsFile = File("mojang_$version.txt")
     val srgMappingsFile = File("srg_$version.tsrg")
+    val clientFile = File("client_$version.jar")
 
     fun downloadFiles() {
         val startTime = System.currentTimeMillis()
@@ -45,7 +46,7 @@ class MappingDownloader(private val version: String) {
     }
 
     fun downloadMojangMappings() {
-        if (mojangMappingsFile.exists()){
+        if (mojangMappingsFile.exists() && clientFile.exists()){
             println("Mojang mappings for $version already exists, skipping.")
             return
         }
@@ -61,7 +62,14 @@ class MappingDownloader(private val version: String) {
         val versionUrl = URL(versionManifestJson.get("url").asString)
         val versionJson = JsonParser.parseString(versionUrl.readText()).asJsonObject
 
-        val mappingsUrl = URL(versionJson.getAsJsonObject("downloads").getAsJsonObject("client_mappings").get("url").asString)
+        val downloads = versionJson.getAsJsonObject("downloads")
+        val clientUrl = URL(downloads.getAsJsonObject("client").get("url").asString)
+        val mappingsUrl = URL(downloads.getAsJsonObject("client_mappings").get("url").asString)
+
+        println("Downloading $version client...")
+        clientFile.createNewFile()
+        clientFile.writeBytes(clientUrl.readBytes())
+        println("$version client has been downloaded!")
 
         mojangMappingsFile.createNewFile()
         mojangMappingsFile.writeText(mappingsUrl.readText())
