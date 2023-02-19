@@ -32,6 +32,10 @@ class Remapper(downloader: MappingDownloader, private val version: String) {
                 val intermediaryField = intermediaryClass.getField(field.mapped)
 
                 if (intermediaryField == null) {
+                    // Don't handle those that aren't going to be remapped anyway.
+                    if (field.original == field.mapped)
+                        return@fieldMapper
+
                     val mojField = mojangClass.getField(field.mapped)
 
                     mappedClass.field(field.original, field.mapped)
@@ -52,6 +56,10 @@ class Remapper(downloader: MappingDownloader, private val version: String) {
                 val intermediaryMethod = intermediaryClass.getMethod(method.mapped, method.mappedDescriptor)
 
                 if (intermediaryMethod == null) {
+                    // Don't handle stuff like <init> and such.
+                    if (method.original == method.mapped)
+                        return@methodMapper
+
                     mappedClass.method(intermediaryMappings.remapDescriptor(method.mappedDescriptor), method.original, method.mapped)
                         .apply {
                             method.parameters.forEach { param ->
