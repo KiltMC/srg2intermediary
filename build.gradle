@@ -22,6 +22,9 @@ repositories {
 dependencies {
     implementation('net.minecraftforge:srgutils:0.4.13')
     implementation('com.google.code.gson:gson:2.10')
+    implementation("org.ow2.asm:asm-commons:9.5")
+    implementation("org.ow2.asm:asm-util:9.5")
+    implementation("org.ow2.asm:asm-tree:9.5")
 }
 
 compileKotlin {
