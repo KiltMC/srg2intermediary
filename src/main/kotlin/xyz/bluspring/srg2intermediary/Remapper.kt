@@ -93,6 +93,9 @@ class Remapper(downloader: MappingDownloader, private val version: String) {
                     mappedClass.field(field.original, remapped.first)
                         .descriptor(remapped.second)
 
+                    if (remapped.first.startsWith("comp_"))
+                        mappedClass.method("()${remapped.second}", field.original, remapped.first)
+
                     return@fieldMapper
                 }
 
@@ -109,6 +112,9 @@ class Remapper(downloader: MappingDownloader, private val version: String) {
                     mappedClass.field(field.original, field.mapped)
                         .descriptor(descriptor)
 
+                    if (field.mapped.startsWith("comp_"))
+                        mappedClass.method("()$descriptor", field.original, field.mapped)
+
                     //alreadyRemapped[field.original] = Pair(field.mapped, descriptor)
 
                     return@fieldMapper
@@ -116,17 +122,21 @@ class Remapper(downloader: MappingDownloader, private val version: String) {
 
                 //alreadyRemapped[field.original] = Pair(intermediaryField.mapped, intermediaryField.mappedDescriptor)
 
+                val desc = if (intermediaryField.descriptor?.contains("L") == true && intermediaryField.descriptor?.contains(";") == true)
+                    mojField?.mappedDescriptor ?: intermediaryField.mappedDescriptor
+                else
+                    intermediaryField.mappedDescriptor
+
                 mappedClass.field(field.original, intermediaryField.mapped)
-                    .descriptor(
-                        if (intermediaryField.descriptor?.contains("L") == true && intermediaryField.descriptor?.contains(";") == true)
-                            mojField?.mappedDescriptor ?: intermediaryField.mappedDescriptor
-                        else
-                            intermediaryField.mappedDescriptor
-                    )
+                    .descriptor(desc)
+
+                if (intermediaryField.mapped.startsWith("comp_"))
+                    mappedClass.method("()$desc", field.original, intermediaryField.mapped)
             }
 
             srgClass.methods.forEach methodMapper@{ method ->
-                // what the fuck is this, why is this even possible
+                // this is possible because of fucking record classes.
+                // let's handle that in fields instead.
                 if (method.original.startsWith("f_"))
                     return@methodMapper
 
