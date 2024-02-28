@@ -31,7 +31,7 @@ class MappingDownloader(private val version: String) {
         val intermediaryJar = File("intermediary-$version-v2.jar")
 
         println("Downloading Intermediary for $version...")
-        val url = URL("https://maven.fabricmc.net/net/fabricmc/intermediary/$version/${intermediaryFile.name}")
+        val url = URL("https://maven.fabricmc.net/net/fabricmc/intermediary/$version/${intermediaryJar.name}")
 
         intermediaryJar.createNewFile()
         intermediaryJar.writeBytes(url.readBytes())
