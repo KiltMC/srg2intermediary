@@ -17,6 +17,11 @@ repositories {
         name 'Fabric'
         url 'https://maven.fabricmc.net/'
     }
+
+    maven {
+        name "devOS Snapshots"
+        url "https://mvn.devos.one/snapshots"
+    }
 }
 
 dependencies {
@@ -25,6 +30,7 @@ dependencies {
     implementation("org.ow2.asm:asm-commons:9.5")
     implementation("org.ow2.asm:asm-util:9.5")
     implementation("org.ow2.asm:asm-tree:9.5")
+    implementation("xyz.bluspring:AutoRenamingTool:0.1.52")
 }
 
 compileKotlin {

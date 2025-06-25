@@ -1,186 +1,161 @@
 package xyz.bluspring.srg2intermediary
 
+import net.minecraftforge.fart.api.ClassProvider
+import net.minecraftforge.fart.internal.EnhancedClassRemapper
+import net.minecraftforge.fart.internal.EnhancedRemapper
+import net.minecraftforge.fart.internal.RenamingTransformer
 import net.minecraftforge.srgutils.IMappingBuilder
 import net.minecraftforge.srgutils.IMappingFile
 import org.objectweb.asm.ClassReader
+import org.objectweb.asm.ClassWriter
 import org.objectweb.asm.Opcodes
 import org.objectweb.asm.tree.ClassNode
 import java.io.File
+import java.util.jar.JarEntry
 import java.util.jar.JarFile
+import java.util.jar.JarOutputStream
+import kotlin.io.path.Path
 
 class Remapper(downloader: MappingDownloader, private val version: String) {
-    val officialMappings = IMappingFile.load(downloader.srgMappingsFile) // official -> srg
-    val srgMappings = officialMappings.reverse() // srg -> official (result of being reversed)
+    val officialSrgMappings = IMappingFile.load(downloader.srgMappingsFile) // official -> srg
+    val srgOfficialMappings = officialSrgMappings.reverse() // srg -> official (result of being reversed)
 
-    val mojangMappings = IMappingFile.load(downloader.mojangMappingsFile).reverse() // official -> moj (result of being reversed)
-    val intermediaryMappings = IMappingFile.load(downloader.intermediaryFile) // official -> intermediary
-
-    val classParents = mutableMapOf<String, MutableList<String>>()
+    val officialMojangMappings = IMappingFile.load(downloader.mojangMappingsFile).reverse() // official -> moj (result of being reversed)
+    val mojOfficialMappings = officialMojangMappings.reverse() // moj -> official
+    val officialIntermediaryMappings = IMappingFile.load(downloader.intermediaryFile) // official -> intermediary
 
     init {
         val startTime = System.currentTimeMillis()
 
-        val jar = JarFile(downloader.clientFile)
-        for (entry in jar.entries()) {
-            if (!entry.name.endsWith(".class"))
-                continue
+        //remapJar(downloader.clientFile, officialSrgMappings, "srg")
+        remapJar(downloader.clientFile, officialMojangMappings, "mojmap")
+        //remapJar(downloader.clientFile, officialIntermediaryMappings, "intermediary")
 
-            val stream = jar.getInputStream(entry)
-            val classReader = ClassReader(stream)
-            val classNode = ClassNode(Opcodes.ASM9)
-
-            classReader.accept(classNode, 0)
-
-            classParents[classNode.name] = mutableListOf(
-                classNode.superName
-            ).apply {
-                this.addAll(classNode.interfaces)
-            }
-        }
-
-        println("Loaded all Minecraft classes and mapped them to their parents. (took ${System.currentTimeMillis() - startTime} ms)")
-    }
-
-    private val alreadyRemapped = mutableMapOf<String, Pair<String, String?>>()
-
-    // Class names are official mapped.
-    private fun getParentTree(className: String): List<String> {
-        val parents = classParents[className] ?: return listOf("java/lang/Object")
-        val tree = mutableListOf<String>()
-
-        for (parent in parents) {
-            tree.add(parent)
-            tree.addAll(getParentTree(parent))
-        }
-
-        return tree
+        println("Mapped all Minecraft classes. (took ${System.currentTimeMillis() - startTime} ms)")
     }
 
     fun remap() {
         val startTime = System.currentTimeMillis()
         println("Creating mappings with MojMap class names and SRG method/field names to Intermediary...")
 
-        // Pre-map the methods because otherwise method name collisions occur.
-        intermediaryMappings.classes.forEach { iClass ->
-            val srgClass = officialMappings.getClass(iClass.original)
-            val mojClass = mojangMappings.getClass(iClass.original)
-
-            iClass.methods.forEach method@{ iMethod ->
-                val srgMethod = srgClass.getMethod(iMethod.original, iMethod.descriptor) ?: return@method
-                val mojMethod = mojClass.getMethod(iMethod.original, iMethod.descriptor) ?: return@method
-
-                alreadyRemapped["${srgClass.mapped}:${srgMethod.mapped}"] = Pair(iMethod.mapped, mojMethod.mappedDescriptor)
-            }
-        }
+        // init remappers
+        val officialRemapper = EnhancedRemapper(ClassProvider.builder().apply {
+            this.addLibrary(Path("client_${version}_mojmap.jar"))
+        }.build(), mojOfficialMappings) { println(it) }
+        val srgRemapper = EnhancedRemapper(ClassProvider.builder().apply {
+            this.addLibrary(Path("client_${version}.jar"))
+        }.build(), officialSrgMappings) { println(it) }
+        val intermediaryRemapper = EnhancedRemapper(ClassProvider.builder().apply {
+            this.addLibrary(Path("client_${version}.jar"))
+        }.build(), officialIntermediaryMappings) { println(it) }
 
         // the args for each of these is (from -> to)
         val mappingBuilder = IMappingBuilder.create("searge", "intermediary")
-        srgMappings.classes.forEach { srgClass ->
-            val mojangClass = mojangMappings.getClass(srgClass.mapped)
-            val intermediaryClass = intermediaryMappings.getClass(srgClass.mapped)
 
-            if (intermediaryClass == null) {
-                println("Failed to map class: SRG:${srgClass.original} OFFICIAL:${srgClass.mapped} MOJ:${mojangClass.mapped}")
+        // get all Mojmapped classes
+        run {
+            val jarFile = JarFile(File("client_${version}_mojmap.jar"))
 
-                return@forEach
-            }
+            for (entry in jarFile.stream()) {
+                if (!entry.name.endsWith(".class"))
+                    continue
 
-            val mappedClass = mappingBuilder.addClass(mojangClass.mapped, intermediaryClass.mapped)
+                val classReader = jarFile.getInputStream(entry).use { ClassReader(it) }
+                val classNode = ClassNode(Opcodes.ASM9)
+                classReader.accept(classNode, 0)
 
-            srgClass.fields.forEach fieldMapper@{ field ->
-                if (alreadyRemapped.contains(field.original)) {
-                    val remapped = alreadyRemapped[field.original]!!
-                    mappedClass.field(field.original, remapped.first)
-                        .descriptor(remapped.second)
+                val officialInfo = officialRemapper.getClass(classNode.name).orElseThrow()
+                val classMap = mappingBuilder.addClass(classNode.name, intermediaryRemapper.map(officialInfo.mapped))
 
-                    if (remapped.first.startsWith("comp_"))
-                        mappedClass.method("()${remapped.second}", field.original, remapped.first)
+                for (field in classNode.fields) {
+                    val intermediaryName = intermediaryRemapper.mapFieldName(
+                        officialInfo.mapped,
+                        officialRemapper.mapFieldName(classNode.name, field.name, field.desc),
+                        officialRemapper.mapDesc(field.desc)
+                    )
 
-                    return@fieldMapper
+                    if (field.name == intermediaryName)
+                        continue
+
+                    classMap.field(
+                        srgRemapper.mapFieldName(
+                            officialInfo.mapped,
+                            officialRemapper.mapFieldName(classNode.name, field.name, field.desc),
+                            officialRemapper.mapDesc(field.desc)
+                        ),
+                        intermediaryName
+                    )
+                        .descriptor(field.desc)
                 }
 
-                val intermediaryField = intermediaryClass.getField(field.mapped)
-                val mojField = mojangClass.getField(field.mapped)
+                for (method in classNode.methods) {
+                    val intermediaryName = intermediaryRemapper.mapMethodName(
+                        officialInfo.mapped,
+                        officialRemapper.mapMethodName(classNode.name, method.name, method.desc),
+                        officialRemapper.mapMethodDesc(method.desc)
+                    )
 
-                if (intermediaryField == null) {
-                    // Don't handle those that aren't going to be remapped anyway.
-                    if (field.original == field.mapped || !field.original.startsWith("f_"))
-                        return@fieldMapper
+                    if (method.name == intermediaryName)
+                        continue
 
-                    val descriptor = mojField?.mappedDescriptor
-
-                    mappedClass.field(field.original, field.mapped)
-                        .descriptor(descriptor)
-
-                    if (field.mapped.startsWith("comp_"))
-                        mappedClass.method("()$descriptor", field.original, field.mapped)
-
-                    //alreadyRemapped[field.original] = Pair(field.mapped, descriptor)
-
-                    return@fieldMapper
+                    classMap.method(method.desc,
+                        srgRemapper.mapMethodName(
+                            officialInfo.mapped,
+                            officialRemapper.mapMethodName(classNode.name, method.name, method.desc),
+                            officialRemapper.mapMethodDesc(method.desc)
+                        ),
+                        intermediaryName
+                    )
                 }
-
-                //alreadyRemapped[field.original] = Pair(intermediaryField.mapped, intermediaryField.mappedDescriptor)
-
-                val desc = if (intermediaryField.descriptor?.contains("L") == true && intermediaryField.descriptor?.contains(";") == true)
-                    mojField?.mappedDescriptor ?: intermediaryField.mappedDescriptor
-                else
-                    intermediaryField.mappedDescriptor
-
-                mappedClass.field(field.original, intermediaryField.mapped)
-                    .descriptor(desc)
-
-                if (intermediaryField.mapped.startsWith("comp_"))
-                    mappedClass.method("()$desc", field.original, intermediaryField.mapped)
-            }
-
-            srgClass.methods.forEach methodMapper@{ method ->
-                // this is possible because of fucking record classes.
-                // let's handle that in fields instead.
-                if (method.original.startsWith("f_"))
-                    return@methodMapper
-
-                val tree = getParentTree(srgClass.original)
-                for (parent in tree) {
-                    val parentName = srgMappings.getClass(parent)?.mapped ?: continue
-
-                    if (alreadyRemapped.contains("$parentName:${method.original}")) {
-                        val remapped = alreadyRemapped["$parentName:${method.original}"]!!
-                        mappedClass.method(remapped.second, method.original, remapped.first)
-
-                        return@methodMapper
-                    }
-                }
-
-                val intermediaryMethod = intermediaryClass.getMethod(method.mapped, method.mappedDescriptor)
-                val mojMethod = mojangClass.getMethod(method.mapped, method.mappedDescriptor)
-
-                if (intermediaryMethod == null) {
-                    // Don't handle stuff like <init> and such.
-                    if (method.original == method.mapped)
-                        return@methodMapper
-
-                    // these might be remapped somewhere else, so don't bother
-                    if (method.mapped.length <= 2 || method.mapped.endsWith("_"))
-                        return@methodMapper
-
-                    val descriptor = mojangMappings.remapDescriptor(method.mappedDescriptor)
-                    mappedClass.method(descriptor, method.original, method.mapped)
-
-                    //alreadyRemapped[method.original] = Pair(method.mapped, descriptor)
-
-                    return@methodMapper
-                }
-
-                mappedClass.method(mojMethod?.mappedDescriptor ?: intermediaryMethod.mappedDescriptor, method.original, intermediaryMethod.mapped)
-                //alreadyRemapped[method.original] = Pair(intermediaryMethod.mapped, intermediaryMethod.mappedDescriptor)
             }
         }
-
 
         val remappedFile = File(System.getProperty("user.dir"), "remapped_$version.tiny")
         mappingBuilder.build().write(remappedFile.toPath(), IMappingFile.Format.TINY)
 
         println("Finished creating a map for SRG to Intermediary! The file has been created at ${remappedFile.absolutePath}. (took ${System.currentTimeMillis() - startTime}ms)")
+    }
+
+    private fun remapJar(sourceJar: File, mappings: IMappingFile, name: String) {
+        val classProvider = ClassProvider.builder().apply {
+            this.addLibrary(sourceJar.toPath())
+        }.build()
+
+        val remapper = EnhancedRemapper(classProvider, mappings) { println(it) }
+        val jar = JarFile(sourceJar)
+
+        val newFile = File("client_${version}_$name.jar")
+        if (newFile.exists())
+            newFile.delete()
+
+        newFile.createNewFile()
+
+        val outputJar = JarOutputStream(newFile.outputStream())
+
+        for (entry in jar.stream()) {
+            if (entry.name.startsWith("META-INF"))
+                continue
+
+            if (entry.name.endsWith(".class")) {
+                val classReader = jar.getInputStream(entry).use { ClassReader(it) }
+                val classNode = ClassNode(Opcodes.ASM9)
+                classReader.accept(classNode, 0)
+
+                val classWriter = ClassWriter(0)
+
+                val visitor = EnhancedClassRemapper(classWriter, remapper, RenamingTransformer(remapper, false))
+                classNode.accept(visitor)
+
+                outputJar.putNextEntry(JarEntry(remapper.map(classNode.name) + ".class"))
+                outputJar.write(classWriter.toByteArray())
+                outputJar.closeEntry()
+            } else {
+                outputJar.putNextEntry(entry)
+                jar.getInputStream(entry).use { outputJar.write(it.readAllBytes()) }
+                outputJar.closeEntry()
+            }
+        }
+
+        outputJar.close()
     }
 }
