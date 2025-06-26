@@ -74,15 +74,17 @@ class Remapper(downloader: MappingDownloader, private val version: String) {
                         officialRemapper.mapDesc(field.desc)
                     )
 
-                    if (field.name == intermediaryName)
+                    val srgName = srgRemapper.mapFieldName(
+                        officialInfo.mapped,
+                        officialRemapper.mapFieldName(classNode.name, field.name, field.desc),
+                        officialRemapper.mapDesc(field.desc)
+                    )
+
+                    if (field.name == intermediaryName && field.name == srgName)
                         continue
 
                     classMap.field(
-                        srgRemapper.mapFieldName(
-                            officialInfo.mapped,
-                            officialRemapper.mapFieldName(classNode.name, field.name, field.desc),
-                            officialRemapper.mapDesc(field.desc)
-                        ),
+                        srgName,
                         intermediaryName
                     )
                         .descriptor(field.desc)
@@ -95,15 +97,17 @@ class Remapper(downloader: MappingDownloader, private val version: String) {
                         officialRemapper.mapMethodDesc(method.desc)
                     )
 
-                    if (method.name == intermediaryName)
+                    val srgName = srgRemapper.mapMethodName(
+                        officialInfo.mapped,
+                        officialRemapper.mapMethodName(classNode.name, method.name, method.desc),
+                        officialRemapper.mapMethodDesc(method.desc)
+                    )
+
+                    if (method.name == intermediaryName && method.name == srgName)
                         continue
 
                     classMap.method(method.desc,
-                        srgRemapper.mapMethodName(
-                            officialInfo.mapped,
-                            officialRemapper.mapMethodName(classNode.name, method.name, method.desc),
-                            officialRemapper.mapMethodDesc(method.desc)
-                        ),
+                        srgName,
                         intermediaryName
                     )
                 }
