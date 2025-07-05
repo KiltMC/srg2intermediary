@@ -16,7 +16,7 @@ import java.util.jar.JarFile
 import java.util.jar.JarOutputStream
 import kotlin.io.path.Path
 
-class Remapper(downloader: MappingDownloader, private val version: String) {
+class Remapper(downloader: MappingDownloader, private val version: String, val isMojmap: Boolean) {
     val officialSrgMappings = IMappingFile.load(downloader.srgMappingsFile) // official -> srg
     val srgOfficialMappings = officialSrgMappings.reverse() // srg -> official (result of being reversed)
 
@@ -44,7 +44,7 @@ class Remapper(downloader: MappingDownloader, private val version: String) {
         }.build(), mojOfficialMappings) { println(it) }
         val srgRemapper = EnhancedRemapper(ClassProvider.builder().apply {
             this.addLibrary(Path("client_${version}.jar"))
-        }.build(), officialSrgMappings) { println(it) }
+        }.build(), if (isMojmap) officialMojangMappings else officialSrgMappings) { println(it) }
         val intermediaryRemapper = EnhancedRemapper(ClassProvider.builder().apply {
             this.addLibrary(Path("client_${version}.jar"))
         }.build(), officialIntermediaryMappings) { println(it) }
