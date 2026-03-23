@@ -27,9 +27,9 @@ class Remapper(downloader: MappingDownloader, private val version: String, val i
     init {
         val startTime = System.currentTimeMillis()
 
-        //remapJar(downloader.clientFile, officialSrgMappings, "srg")
+        remapJar(downloader.clientFile, officialSrgMappings, "srg")
         remapJar(downloader.clientFile, officialMojangMappings, "mojmap")
-        //remapJar(downloader.clientFile, officialIntermediaryMappings, "intermediary")
+        remapJar(downloader.clientFile, officialIntermediaryMappings, "intermediary")
 
         println("Mapped all Minecraft classes. (took ${System.currentTimeMillis() - startTime} ms)")
     }
@@ -48,9 +48,12 @@ class Remapper(downloader: MappingDownloader, private val version: String, val i
         val intermediaryRemapper = EnhancedRemapper(ClassProvider.builder().apply {
             this.addLibrary(Path("client_${version}.jar"))
         }.build(), officialIntermediaryMappings) { println(it) }
+        val mojRemapper = EnhancedRemapper(ClassProvider.builder().apply {
+            this.addLibrary(Path("client_${version}.jar"))
+        }.build(), officialMojangMappings) { println(it) }
 
         // the args for each of these is (from -> to)
-        val mappingBuilder = IMappingBuilder.create("searge", "intermediary")
+        val mappingBuilder = IMappingBuilder.create("searge", "intermediary", "mojang")
 
         // get all Mojmapped classes
         run {
@@ -65,7 +68,7 @@ class Remapper(downloader: MappingDownloader, private val version: String, val i
                 classReader.accept(classNode, 0)
 
                 val officialInfo = officialRemapper.getClass(classNode.name).orElseThrow()
-                val classMap = mappingBuilder.addClass(classNode.name, intermediaryRemapper.map(officialInfo.mapped))
+                val classMap = mappingBuilder.addClass(classNode.name, intermediaryRemapper.map(officialInfo.mapped), classNode.name)
 
                 for (field in classNode.fields) {
                     val intermediaryName = intermediaryRemapper.mapFieldName(
@@ -80,12 +83,19 @@ class Remapper(downloader: MappingDownloader, private val version: String, val i
                         officialRemapper.mapDesc(field.desc)
                     )
 
-                    if (field.name == intermediaryName && field.name == srgName)
+                    val mojName = mojRemapper.mapFieldName(
+                        officialInfo.mapped,
+                        officialRemapper.mapFieldName(classNode.name, field.name, field.desc),
+                        officialRemapper.mapDesc(field.desc)
+                    )
+
+                    if (field.name == intermediaryName && field.name == srgName && field.name == mojName)
                         continue
 
                     classMap.field(
                         srgName,
-                        intermediaryName
+                        intermediaryName,
+                        mojName
                     )
                         .descriptor(field.desc)
                 }
@@ -103,13 +113,28 @@ class Remapper(downloader: MappingDownloader, private val version: String, val i
                         officialRemapper.mapMethodDesc(method.desc)
                     )
 
-                    if (method.name == intermediaryName && method.name == srgName)
+                    val mojName = mojRemapper.mapMethodName(
+                        officialInfo.mapped,
+                        officialRemapper.mapMethodName(classNode.name, method.name, method.desc),
+                        officialRemapper.mapMethodDesc(method.desc)
+                    )
+
+                    if (method.name == intermediaryName && method.name == srgName && method.name == mojName && !method.name.startsWith("lambda$"))
                         continue
 
                     classMap.method(method.desc,
-                        srgName,
-                        intermediaryName
+                        if (!method.name.startsWith("lambda$")) srgName else method.name,
+                        intermediaryName,
+                        mojName
                     )
+
+                    if (method.name.startsWith("lambda$")) {
+                        classMap.method(method.desc,
+                            srgName,
+                            intermediaryName,
+                            mojName
+                        )
+                    }
                 }
             }
         }
@@ -120,7 +145,7 @@ class Remapper(downloader: MappingDownloader, private val version: String, val i
         println("Finished creating a map for SRG to Intermediary! The file has been created at ${remappedFile.absolutePath}. (took ${System.currentTimeMillis() - startTime}ms)")
     }
 
-    private fun remapJar(sourceJar: File, mappings: IMappingFile, name: String) {
+    private fun remapJar(sourceJar: File, mappings: IMappingFile, name: String): File {
         val classProvider = ClassProvider.builder().apply {
             this.addLibrary(sourceJar.toPath())
         }.build()
@@ -161,5 +186,6 @@ class Remapper(downloader: MappingDownloader, private val version: String, val i
         }
 
         outputJar.close()
+        return newFile
     }
 }
