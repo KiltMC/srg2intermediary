@@ -128,13 +128,13 @@ class Remapper(downloader: MappingDownloader, private val version: String, val i
                         mojName
                     )
 
-                    if (method.name.startsWith("lambda$")) {
+                    /*if (method.name.startsWith("lambda$")) {
                         classMap.method(method.desc,
                             srgName,
                             intermediaryName,
                             mojName
                         )
-                    }
+                    }*/
                 }
             }
         }
