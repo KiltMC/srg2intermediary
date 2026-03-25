@@ -122,19 +122,25 @@ class Remapper(downloader: MappingDownloader, private val version: String, val i
                     if (method.name == intermediaryName && method.name == srgName && method.name == mojName && !method.name.startsWith("lambda$"))
                         continue
 
-                    classMap.method(method.desc,
+                    /*classMap.method(method.desc,
                         if (!method.name.startsWith("lambda$")) srgName else method.name,
                         intermediaryName,
                         mojName
                     )
 
-                    /*if (method.name.startsWith("lambda$")) {
+                    if (method.name.startsWith("lambda$")) {
                         classMap.method(method.desc,
                             srgName,
                             intermediaryName,
                             mojName
                         )
                     }*/
+
+                    classMap.method(method.desc,
+                        srgName,
+                        intermediaryName,
+                        mojName
+                    )
                 }
             }
         }
